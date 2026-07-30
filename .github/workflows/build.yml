@@ -1,5 +1,10 @@
 name: build
-on: [ pull_request, push ]
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # <--- 新增这行，代表允许手动运行
 
 jobs:
   build:
