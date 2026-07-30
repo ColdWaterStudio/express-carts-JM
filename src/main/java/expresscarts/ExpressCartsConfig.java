@@ -55,4 +55,10 @@ public class ExpressCartsConfig {
     public static Component fallDamageMultiplierComment() {
         return Component.translatable("expresscarts.config.comment.fallDamageMultiplier");
     }
+
+    // 新增：加速度调节倍率（如 1.2 表示按住 W 时速度放大 20%）
+    public static double accelerationMultiplier = 1.2; 
+
+    // 新增：矿车最高限速（Vanilla 默认 0.4，建议 1.0 ~ 1.5 以防原版客户端拉回）
+    public static double maxCartSpeed = 1.2;
 }
