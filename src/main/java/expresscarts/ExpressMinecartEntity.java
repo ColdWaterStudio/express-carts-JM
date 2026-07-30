@@ -122,3 +122,29 @@ public class ExpressMinecartEntity extends Minecart implements PolymerEntity {
         }
     }
 }
+
+// 1. 修改最高速度限制
+@Override
+public double getMaxSpeed() {
+    return ExpressCartsConfig.maxCartSpeed;
+}
+
+// 2. 纯服务端响应玩家前进 (W) 键进行加速
+@Override
+public void tick() {
+    super.tick();
+    
+    if (!this.getWorld().isClient() && this.hasPassengers()) {
+        if (this.getFirstPassenger() instanceof net.minecraft.entity.player.PlayerEntity player) {
+            // 检测玩家是否按下 W 键
+            if (player.forwardSpeed > 0) {
+                net.minecraft.util.math.Vec3d vel = this.getVelocity();
+                this.setVelocity(
+                    vel.x * ExpressCartsConfig.accelerationMultiplier,
+                    vel.y,
+                    vel.z * ExpressCartsConfig.accelerationMultiplier
+                );
+            }
+        }
+    }
+}
