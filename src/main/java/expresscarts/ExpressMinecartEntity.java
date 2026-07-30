@@ -1,149 +1,49 @@
 package expresscarts;
 
-import eu.pb4.polymer.core.api.entity.PolymerEntity;
-import expresscarts.mixin.AbstractMinecartAccessor;
-import net.minecraft.network.syncher.SynchedEntityData;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.level.TicketType;
-import net.minecraft.world.damagesource.DamageSource;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
-//? >= 26.2
-import net.minecraft.world.entity.EntityTypes;
-import net.minecraft.world.entity.vehicle.minecart.Minecart;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.phys.Vec3;
-import org.jetbrains.annotations.NotNull;
-import org.jspecify.annotations.NonNull;
-//? if < 26.1 {
-/*import xyz.nucleoid.packettweaker.PacketContext;
-*///?} else
-import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityType;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.vehicle.AbstractMinecartEntity;
+import net.minecraft.item.Item;
+import net.minecraft.util.math.Vec3d;
+import net.minecraft.world.World;
 
-import java.util.List;
-import java.util.Optional;
+public class ExpressMinecartEntity extends AbstractMinecartEntity {
 
-public class ExpressMinecartEntity extends Minecart implements PolymerEntity {
-    private ChunkPos ticketChunkPos;
-    private Long ticketTimer = 0L;
+    public ExpressMinecartEntity(EntityType<?> type, World world) {
+        super(type, world);
+    }
 
-    public ExpressMinecartEntity(EntityType<?> entityType, Level level) {
-        super(entityType, level);
+    public ExpressMinecartEntity(EntityType<?> type, World world, double x, double y, double z) {
+        super(type, world, x, y, z);
     }
 
     @Override
-    public EntityType<?> getPolymerEntityType(PacketContext context) {
-        //? if >=26.2 {
-        return EntityTypes.MINECART;
-        //?} else
-        //return EntityType.MINECART;
-    }
-
-    @Override
-    protected @NotNull Item getDropItem() {
+    protected Item getItem() {
         return ModItems.EXPRESS_MINECART;
     }
 
+    // --- 新增：动态加速逻辑 ---
     @Override
-    public @NotNull ItemStack getPickResult() {
-        return new ItemStack(ModItems.EXPRESS_MINECART);
-    }
-
-    @Override
-    public void modifyRawTrackedData(List<SynchedEntityData.DataValue<?>> data, ServerPlayer player, boolean initial) {
-        data.removeIf(element ->
-            element.id() == AbstractMinecartAccessor.getCustomBlockOffset().id() || element.id() == AbstractMinecartAccessor.getCustomDisplayBlock().id()
-        );
-
-        // The client sees this as a vanilla minecart, so we have to explicitly send our default values.
-        data.add(SynchedEntityData.DataValue.create(AbstractMinecartAccessor.getCustomDisplayBlock(), Optional.of(this.getDefaultDisplayBlockState())));
-        data.add(SynchedEntityData.DataValue.create(AbstractMinecartAccessor.getCustomBlockOffset(), this.getDefaultDisplayOffset()));
-    }
-
-    @Override
-    public @NonNull BlockState getDefaultDisplayBlockState() {
-        // Used so clients can see that this is different to a vanilla minecart.
-        //? if >= 26.2 {
-        return Blocks.CARPET.red().defaultBlockState();
-        //?} else
-        //return Blocks.RED_CARPET.defaultBlockState();
-    }
-
-    @Override
-    public int getDefaultDisplayOffset() {
-        // To sit flat on the floor of the minecart.
-        return 4;
-    }
-
-    @Override
-    // apply the brakes when the controlling player holds back while in the cart
-    protected @NotNull Vec3 applyNaturalSlowdown(Vec3 velocity) {
-        Vec3 vel = super.applyNaturalSlowdown(velocity);
-
-        if (ExpressCartsConfig.brakingEnabled && this.getFirstPassenger() instanceof ServerPlayer player && player.getLastClientInput().backward()) {
-            // stop completely if going slowly. otherwise, slow down (but not as quickly as an unpowered powered rail)
-            return vel.length() < 0.03 ? Vec3.ZERO : vel.scale(ExpressCartsConfig.brakeSlowdown);
-        }
-
-        return vel;
+    public double getMaxSpeed() {
+        return ExpressCartsConfig.maxCartSpeed;
     }
 
     @Override
     public void tick() {
         super.tick();
-        if (ExpressCartsConfig.loadChunks) {
-            if (this.level() instanceof ServerLevel serverLevel) {
-                ChunkPos chunkPos = this.chunkPosition();
-                if (--this.ticketTimer <= 0L || chunkPos != this.ticketChunkPos) {
-                    this.ticketChunkPos = chunkPos;
-                    this.ticketTimer = placeTicket(serverLevel, chunkPos);
+
+        if (!this.getWorld().isClient() && this.hasPassengers()) {
+            Entity passenger = this.getFirstPassenger();
+            if (passenger instanceof PlayerEntity player) {
+                if (player.forwardSpeed > 0) {
+                    Vec3d vel = this.getVelocity();
+                    this.setVelocity(
+                        vel.x * ExpressCartsConfig.accelerationMultiplier,
+                        vel.y,
+                        vel.z * ExpressCartsConfig.accelerationMultiplier
+                    );
                 }
-            }
-        }
-    }
-
-    private long placeTicket(ServerLevel serverLevel, ChunkPos chunkPos) {
-        serverLevel.getChunkSource().addTicketWithRadius(TicketType.ENDER_PEARL, chunkPos, 2);
-        return TicketType.ENDER_PEARL.timeout();
-    }
-
-    @Override
-    protected void propagateFallToPassengers(double d, float f, DamageSource damageSource) {
-        // we scale any existing f we get, rather than completely overriding, to preserve (relative) behaviour of any blocks which already change fall damage
-        var newDamageScale = f * ExpressCartsConfig.fallDamageMultiplier;
-        for (Entity entity : this.getPassengers()) {
-            entity.causeFallDamage(d, newDamageScale, damageSource);
-        }
-    }
-}
-
-// 1. 修改最高速度限制
-@Override
-public double getMaxSpeed() {
-    return ExpressCartsConfig.maxCartSpeed;
-}
-
-// 2. 纯服务端响应玩家前进 (W) 键进行加速
-@Override
-public void tick() {
-    super.tick();
-    
-    if (!this.getWorld().isClient() && this.hasPassengers()) {
-        if (this.getFirstPassenger() instanceof net.minecraft.entity.player.PlayerEntity player) {
-            // 检测玩家是否按下 W 键
-            if (player.forwardSpeed > 0) {
-                net.minecraft.util.math.Vec3d vel = this.getVelocity();
-                this.setVelocity(
-                    vel.x * ExpressCartsConfig.accelerationMultiplier,
-                    vel.y,
-                    vel.z * ExpressCartsConfig.accelerationMultiplier
-                );
             }
         }
     }
